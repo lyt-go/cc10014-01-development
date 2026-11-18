@@ -48,6 +48,7 @@
             >
               {{ action }}
             </button>
+            <button class="link" type="button" :data-testid="`history-${row.id}`" @click="openHistory(row)">版本历史</button>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -55,6 +56,31 @@
         </tr>
       </tbody>
     </table>
+
+    <section v-if="historyRow" class="detail-panel" data-testid="mapping-history-panel">
+      <h3>规则版本历史：{{ historyRow['规则编号'] }}</h3>
+      <p class="page-desc">
+        当前版本 {{ historyRow['规则版本'] }}；旧版本作为历史快照单独可查，清单里的字段顺序以既有映射为准。
+      </p>
+      <div v-if="historyManifest" class="preview-box" data-testid="mapping-manifest-view">
+        引用清单：{{ historyManifest['批次编号'] }}（{{ historyManifest['清单版本'] }}）·
+        原始行数 {{ historyManifest['原始数据行数'] }} · 校验 {{ historyManifest['清单校验摘要'] }} ·
+        补写字段 {{ (historyManifest['补写字段清单'] || []).join('、') || '无' }}
+      </div>
+      <table class="data-table small">
+        <thead><tr><th>版本</th><th>原因</th><th>源字段名</th><th>目标字段名</th><th>时间</th></tr></thead>
+        <tbody>
+          <tr v-for="(item, index) in historyItems" :key="index" :data-testid="`history-item-${index}`">
+            <td>{{ item['版本'] }}</td>
+            <td>{{ item['原因'] }}</td>
+            <td>{{ item['数据']?.['源字段名'] }}</td>
+            <td>{{ item['数据']?.['目标字段名'] }}</td>
+            <td>{{ item['时间'] }}</td>
+          </tr>
+          <tr v-if="!historyItems.length"><td colspan="5" class="empty-state">暂无历史版本</td></tr>
+        </tbody>
+      </table>
+    </section>
 
     <div v-if="showCreate" class="modal-backdrop" data-testid="create-modal">
       <form class="modal" @submit.prevent="submitCreate">
@@ -100,6 +126,9 @@ const filterFields = columns.slice(0, 3)
 const showCreate = ref(false)
 const creating = ref(false)
 const createValues = ref<Record<string, string>>({})
+const historyRow = ref<Row | null>(null)
+const historyItems = ref<Record<string, any>[]>([])
+const historyManifest = ref<Record<string, any> | null>(null)
 const stats = computed(() => [
   { label: metricNames[0], value: total.value },
   { label: metricNames[1], value: rows.value.filter((row) => row.status === statuses[1]).length },
@@ -109,6 +138,23 @@ const stats = computed(() => [
 function resetFilters() {
   filters.value = {}
   void reload()
+}
+
+async function openHistory(row: Row) {
+  errorMessage.value = ''
+  historyRow.value = historyRow.value?.id === row.id ? null : row
+  if (!historyRow.value) return
+  try {
+    const response = await request(`${ENDPOINT}/${row.id}/history`)
+    const payload = await response.json()
+    if (!response.ok) throw new Error('映射版本历史读取失败')
+    historyItems.value = payload.items ?? []
+    historyManifest.value = payload.manifest ?? null
+  } catch (error) {
+    historyItems.value = []
+    historyManifest.value = null
+    errorMessage.value = error instanceof Error ? error.message : '映射版本历史读取失败'
+  }
 }
 
 async function exportRows() {
@@ -179,6 +225,7 @@ async function reload() {
     const payload = await response.json()
     rows.value = payload.items ?? []
     total.value = payload.total ?? rows.value.length
+    if (historyRow.value) historyRow.value = null
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '字段映射列表读取失败'
   }

@@ -29,6 +29,12 @@ class Store:
         self._archive_records: list[dict[str, Any]] = []
         # 补数区间记录
         self._backfill_partitions: dict[str, list[dict[str, Any]]] = {}
+        # 入库批次清单: 批次编号 -> 当前唯一有效清单
+        self._manifests: dict[str, dict[str, Any]] = {}
+        # 入库批次清单历史（被覆盖的完整清单快照）
+        self._manifest_history: dict[str, list[dict[str, Any]]] = {}
+        # 字段映射历史快照: 规则编号 -> [{版本, 时间, 数据, 原因}]
+        self._mapping_history: dict[str, list[dict[str, Any]]] = {}
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)
@@ -165,6 +171,67 @@ class Store:
 
     def get_backfill_partitions(self, job_id: str) -> list[dict[str, Any]]:
         return list(self._backfill_partitions.get(job_id, []))
+
+    # ---- 入库批次清单 ----
+
+    def get_manifest(self, batch_no: str) -> dict[str, Any] | None:
+        manifest = self._manifests.get(batch_no)
+        return dict(manifest) if manifest else None
+
+    def save_manifest(self, batch_no: str, manifest: dict[str, Any], *, supersede: bool = True) -> dict[str, Any]:
+        """写入批次清单。
+
+        同一批次只保留一个完整版本：新清单整份替换旧清单，旧清单作为历史快照单独留存，
+        不会出现新旧字段混在一条记录里的半套数据。``supersede=False`` 用于确认重放的
+        幂等写入——内容和摘要都一致时直接返回已存在的清单。
+        """
+        current = self._manifests.get(batch_no)
+        if current is not None and not supersede:
+            return dict(current)
+        if current is not None:
+            # 同批次重复确认完全一致：不重复记历史，只刷新确认次数与时间
+            same_payload = (
+                str(current.get("清单校验摘要") or "") != ""
+                and current.get("清单校验摘要") == manifest.get("清单校验摘要")
+            )
+            if same_payload:
+                current["确认次数"] = max(
+                    int(current.get("确认次数", 1)) + 1,
+                    int(manifest.get("确认次数", 0) or 0),
+                )
+                current["生成时间"] = datetime.now().isoformat()
+                return dict(current)
+            history = self._manifest_history.setdefault(batch_no, [])
+            snapshot = dict(current)
+            snapshot["被替换时间"] = datetime.now().isoformat()
+            history.append(snapshot)
+        record = dict(manifest)
+        record["清单版本"] = f"v{len(self._manifest_history.get(batch_no, [])) + 1}"
+        record["生成时间"] = datetime.now().isoformat()
+        self._manifests[batch_no] = record
+        return dict(record)
+
+    def get_manifest_history(self, batch_no: str) -> list[dict[str, Any]]:
+        return [dict(item) for item in self._manifest_history.get(batch_no, [])]
+
+    def list_manifests(self) -> list[dict[str, Any]]:
+        return [dict(item) for item in self._manifests.values()]
+
+    # ---- 字段映射历史快照 ----
+
+    def save_mapping_history(self, rule_no: str, data: dict[str, Any], reason: str) -> dict[str, Any]:
+        history = self._mapping_history.setdefault(rule_no, [])
+        snapshot = {
+            "版本": str(data.get("规则版本") or f"v{len(history) + 1}"),
+            "时间": datetime.now().isoformat(),
+            "原因": reason,
+            "数据": dict(data),
+        }
+        history.append(snapshot)
+        return snapshot
+
+    def get_mapping_history(self, rule_no: str) -> list[dict[str, Any]]:
+        return [dict(item) for item in self._mapping_history.get(rule_no, [])]
 
 
 store = Store()

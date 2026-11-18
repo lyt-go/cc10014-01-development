@@ -5,10 +5,11 @@ import csv
 import io
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.schemas import ActionPayload, ActionResult, EntryPayload
+from app.services.ingest_parse import parse_batch
 from app.services.raw_ingest import RawIngestService
 
 router = APIRouter(prefix="/api/raw_ingest", tags=["原始入库"])
@@ -54,6 +55,26 @@ def get_entry(entry_id: int) -> dict:
     return entry
 
 
+@router.post("/preview")
+def preview_raw_file(payload: dict[str, Any] = Body(...)) -> dict:
+    """解析原始入库文件，返回字段、行数与校验摘要；确认入库前可先核对。"""
+    content = str(payload.get("content") or "")
+    if not content.strip():
+        return {"ok": False, "message": "原始文件内容为空", "parsed": None}
+    entry = {
+        "批次编号": str(payload.get("批次编号") or ""),
+        "来源系统": str(payload.get("来源系统") or ""),
+        "文件格式": str(payload.get("文件格式") or ""),
+        "原始行数": str(payload.get("原始行数") or ""),
+        "校验摘要": str(payload.get("校验摘要") or ""),
+        "落地路径": str(payload.get("落地路径") or ""),
+    }
+    parsed = parse_batch(entry, content)
+    if parsed["解析错误"]:
+        return {"ok": False, "message": parsed["解析错误"], "parsed": parsed}
+    return {"ok": True, "message": f"解析出 {len(parsed['字段列表'])} 个字段、{parsed['行数']} 行", "parsed": parsed}
+
+
 @router.post("")
 def create_entry(payload: EntryPayload) -> ActionResult:
     entry_or_none, missing = service.create_entry(payload.values)
@@ -64,7 +85,8 @@ def create_entry(payload: EntryPayload) -> ActionResult:
 
 @router.post("/{entry_id}/actions")
 def run_action(entry_id: int, payload: ActionPayload) -> ActionResult:
-    entry_or_none, message = service.run_action(entry_id, payload.action)
+    raw_text = payload.raw_content
+    entry_or_none, message = service.run_action(entry_id, payload.action, raw_text)
     if entry_or_none is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry_or_none)

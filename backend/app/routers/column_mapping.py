@@ -74,6 +74,19 @@ def get_entry(entry_id: int) -> dict:
     return entry
 
 
+@router.get("/{entry_id}/history")
+def get_mapping_history(entry_id: int) -> dict:
+    """映射旧版本快照：补写字段升版本后，旧版本仍单独可查。"""
+    entry = service.get_entry(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"映射规则 {entry_id} 不存在或已归档")
+    rule_no = str(entry.get("规则编号") or "")
+    return {
+        "items": service.get_mapping_history(rule_no),
+        "manifest": service.get_manifest_view(rule_no),
+    }
+
+
 @router.post("", response_model=ActionResult)
 def create_entry(payload: dict[str, object]) -> ActionResult:
     """登记一条映射规则，缺字段时说明原因而不是静默丢弃。"""

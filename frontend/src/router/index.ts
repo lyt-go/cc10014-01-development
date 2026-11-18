@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import Overview from '@/views/Overview.vue'
 const RawIngest = () => import('@/views/raw_ingest/index.vue')
+const IngestManifest = () => import('@/views/ingest_manifest/index.vue')
+const IngestManifestDetail = () => import('@/views/ingest_manifest/detail.vue')
 const ColumnMapping = () => import('@/views/column_mapping/index.vue')
 const CleanseRule = () => import('@/views/cleanse_rule/index.vue')
 const DedupConfig = () => import('@/views/dedup_config/index.vue')
@@ -25,6 +27,8 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'overview', component: Overview },
     { path: '/raw_ingest', name: 'raw_ingest', component: RawIngest },
+    { path: '/ingest_manifest', name: 'ingest_manifest', component: IngestManifest },
+    { path: '/ingest_manifest/:batchNo', name: 'ingest_manifest_detail', component: IngestManifestDetail },
     { path: '/column_mapping', name: 'column_mapping', component: ColumnMapping },
     { path: '/cleanse_rule', name: 'cleanse_rule', component: CleanseRule },
     { path: '/dedup_config', name: 'dedup_config', component: DedupConfig },

@@ -33,6 +33,8 @@ class ActionPayload(BaseModel):
 
     action: str
     remark: str | None = None
+    # 确认入库时可带上原始入库文件内容，清单按它解析行数与校验摘要
+    raw_content: str | None = None
 
 
 
